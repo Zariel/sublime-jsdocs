@@ -62,6 +62,8 @@ def getParser(view):
         return JsdocsObjC(viewSettings)
     elif sourceLang == 'java':
         return JsdocsJava(viewSettings)
+    elif sourceLang == "ls":
+		return JsDocsLivescript(viewSettings)
     return JsdocsJavascript(viewSettings)
 
 
@@ -668,6 +670,74 @@ class JsdocsCPP(JsdocsParser):
 
 
 class JsdocsCoffee(JsdocsParser):
+    def setupSettings(self):
+        identifier = '[a-zA-Z_$][a-zA-Z_$0-9]*'
+        self.settings = {
+            # curly brackets around the type information
+            'curlyTypes': True,
+            'typeTag': "type",
+            'typeInfo': True,
+            # technically, they can contain all sorts of unicode, but w/e
+            'varIdentifier': identifier,
+            'fnIdentifier': identifier,
+            'fnOpener': None,  # no multi-line function definitions for you, hipsters!
+            'commentCloser': '###',
+            'bool': 'Boolean',
+            'function': 'Function'
+        }
+
+    def parseFunction(self, line):
+        res = re.search(
+            #   fnName = function,  fnName : function
+            '(?:(?P<name>' + self.settings['varIdentifier'] + ')\s*[:=]\s*)?'
+            + '(?:\\((?P<args>[^()]*?)\\))?\\s*([=-]>)',
+            line
+        )
+        if not res:
+            return None
+
+        # grab the name out of "name1 = function name2(foo)" preferring name1
+        name = res.group('name') or ''
+        args = res.group('args')
+
+        return (name, args, None)
+
+    def parseVar(self, line):
+        res = re.search(
+            #   var foo = blah,
+            #       foo = blah;
+            #   baz.foo = blah;
+            #   baz = {
+            #        foo : blah
+            #   }
+
+            '(?P<name>' + self.settings['varIdentifier'] + ')\s*[=:]\s*(?P<val>.*?)(?:[;,]|$)',
+            line
+        )
+        if not res:
+            return None
+
+        return (res.group('name'), res.group('val').strip())
+
+    def guessTypeFromValue(self, val):
+        if is_numeric(val):
+            return "Number"
+        if val[0] == '"' or val[0] == "'":
+            return "String"
+        if val[0] == '[':
+            return "Array"
+        if val[0] == '{':
+            return "Object"
+        if val == 'true' or val == 'false':
+            return 'Boolean'
+        if re.match('RegExp\\b|\\/[^\\/]', val):
+            return 'RegExp'
+        if val[:4] == 'new ':
+            res = re.search('new (' + self.settings['fnIdentifier'] + ')', val)
+            return res and res.group(1) or None
+        return None
+
+class JsdocsLivescript(JsdocsParser):
     def setupSettings(self):
         identifier = '[a-zA-Z_$][a-zA-Z_$0-9]*'
         self.settings = {
